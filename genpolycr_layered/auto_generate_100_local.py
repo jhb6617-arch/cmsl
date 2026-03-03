@@ -20,14 +20,20 @@ for i in range(1, NUM_STRUC + 1):
     print(f"[{i}/{NUM_STRUC}] 구조 생성 및 복사 중...")
     
     # ---------------------------------------------------------
-    # 1. parameters.h의 SEED 값 랜덤 변경
+    # 1. parameters.h의 SEED 값 및 ng_total 랜덤 변경
     # ---------------------------------------------------------
     with open("parameters.h", "r", encoding="utf-8") as f:
         content = f.read()
-    
+
     new_seed = -random.randint(1000000, 9999999)
     content = re.sub(r"long SEED = -?\d+;", f"long SEED = {new_seed};", content)
-    
+
+    # ng_total 이 grain 개수를 결정하므로, 이를 랜덤으로 변경하면 grain size가 달라짐
+    # 값이 클수록 grain이 작아지고, 작을수록 grain이 커짐
+    # np = 2000 (max centroid storage) 보다 작아야 함
+    new_ng_total = random.randint(400, 1800)
+    content = re.sub(r"int ng_total = \d+;", f"int ng_total = {new_ng_total};", content)
+
     with open("parameters.h", "w", encoding="utf-8") as f:
         f.write(content)
         
