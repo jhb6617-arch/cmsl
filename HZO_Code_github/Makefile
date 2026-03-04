@@ -8,8 +8,11 @@ BUILD_DIR := build
 
 TARGET := Pfmhzo.exe
 
+# CUDA include path (cub/cub.cuh lives here)
+CUDA_INC ?= $(CUDA_HOME)/include
+
 # Compile flags
-NVCCFLAGS := -O2 -std=c++14 -I$(INC_DIR) -dc \
+NVCCFLAGS := -O2 -std=c++14 -I$(INC_DIR) -I$(CUDA_INC) -dc \
              -Xcompiler -MMD -Xcompiler -MP \
              -Xcompiler -Wno-deprecated-declarations
 
