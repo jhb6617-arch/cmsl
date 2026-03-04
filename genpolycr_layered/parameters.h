@@ -17,7 +17,7 @@ int *angle;
 // Thin film dimensions
 int nx = 940, ny = 940, nz = 10, nx_half, ny_half, nz_half; // nz = layer_counts
 long SEED = -9630614;
-int np = 2000;      // max centroid storage
+int np = 9000;      // max centroid storage (ng_total up to 8500)
 int nor = 39999;    // orientation database size
 double gsize;
 

@@ -57,8 +57,8 @@ int main(void)
 
     // ----------------- randomize grain size -----------------
     // ng_total controls grain count: more grains = smaller size, fewer = larger
-    // Must stay below np (max centroid storage = 2000)
-    ng_total = 400 + rand() % 1401;   // random in [400, 1800]
+    // Must stay below np (max centroid storage = 9000)
+    ng_total = 600 + rand() % 7901;   // random in [600, 8500] → avg grain size 10~40 nm
 
     // ----------------- set per-layer grain counts (proportional) -----------------
     int sumz = 0;

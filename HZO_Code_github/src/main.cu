@@ -433,9 +433,9 @@ int main(int argc, char *argv[])
     one_by_nxnynz = 1.0 / ((double)nx * ny * nz);
     cudaSetDevice(device_flag);
 
-    // Allocate with maximum possible grain count (voronoi generates up to 1800,
-    // capped at np=2000). Per-structure ng_total is read inside the loop.
-    ng_total = 2000;
+    // Allocate with maximum possible grain count (voronoi generates up to 8500,
+    // capped at np=9000). Per-structure ng_total is read inside the loop.
+    ng_total = 8500;
     AllocateData();
 
     evolve_resources_init();
