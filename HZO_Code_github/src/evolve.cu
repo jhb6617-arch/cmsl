@@ -30,7 +30,7 @@ void allocate_cuda_resources() {
         CHECK(cudaMalloc((void**)&Psum_d, sizeof(double)));
     }
     if (t_storage == NULL) {
-        cub::DeviceReduce::Sum(nullptr, t_storage_bytes, Pmz_old_d, Psum_d, nx * ny * nz);
+        cub::DeviceReduce::Sum(NULL, t_storage_bytes, Pmz_old_d, Psum_d, nx * ny * nz);
         CHECK(cudaMalloc(&t_storage, t_storage_bytes));
     }
 }
@@ -105,8 +105,8 @@ void Evolve() {
     double Pmean_FE_only = 0.0;
     double f_FE = 0.0;
 
-    double *Pmz_FE_d = nullptr;
-    double *mask_FE_d = nullptr;   // 1.0 for FE voxels, 0.0 otherwise
+    double *Pmz_FE_d = NULL;
+    double *mask_FE_d = NULL;   // 1.0 for FE voxels, 0.0 otherwise
 
     CHECK(cudaMalloc(&Pmz_FE_d,  Nvox * sizeof(double)));
     CHECK(cudaMalloc(&mask_FE_d, Nvox * sizeof(double)));
@@ -116,8 +116,8 @@ void Evolve() {
     double Pmean_DE_only = 0.0;
     double f_DE = 0.0;
 
-    double *Pmz_DE_d  = nullptr;
-    double *mask_DE_d = nullptr;
+    double *Pmz_DE_d  = NULL;
+    double *mask_DE_d = NULL;
 
     CHECK(cudaMalloc(&Pmz_DE_d,  Nvox * sizeof(double)));
     CHECK(cudaMalloc(&mask_DE_d, Nvox * sizeof(double)));
@@ -127,8 +127,8 @@ void Evolve() {
     double Pmean_AFE_only = 0.0;
     double f_AFE = 0.0;
 
-    double *Pmz_AFE_d  = nullptr;
-    double *mask_AFE_d = nullptr;
+    double *Pmz_AFE_d  = NULL;
+    double *mask_AFE_d = NULL;
 
     CHECK(cudaMalloc(&Pmz_AFE_d,  Nvox * sizeof(double)));
     CHECK(cudaMalloc(&mask_AFE_d, Nvox * sizeof(double)));
