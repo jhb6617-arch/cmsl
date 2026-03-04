@@ -1,0 +1,150 @@
+README — Recent Code Updates (Microstructure Handling & Output Changes)
+
+This note summarizes ONLY the recent modifications made to the code. All
+physics, model formulation, and simulation workflow remain unchanged.
+
+  ------------------------------------
+  1. Multiple Microstructure Support
+  ------------------------------------
+
+Previously: - Grain structure was read only once from:
+inputs/gchar_poly.txt inputs/gnumb_poly.txt inputs/gdata_poly.bin
+
+Now: - Multiple microstructures can be used sequentially: inputs/struc1/
+inputs/struc2/ inputs/struc3/ …
+
+Each structure directory must contain: gchar_poly.txt and gdata_poly.bin
+
+gnumb_poly.txt is required inside "inputs" as number of grains DO NOT change.
+
+Execution behavior: 
+Structure 1 → all parameter sets 
+Structure 2 → all parameter sets 
+Structure 3 → all parameter sets
+
+The code loads one structure, runs all simulations, then moves to the
+next structure.
+
+  ----------------------------------
+  2. Output Directory Organization
+  ----------------------------------
+
+Sweep text files are now written per structure:
+
+output/struc001/ sweep001.txt sweep002.txt 
+      struc002/ sweep001.txt
+
+No intermediate simXXX folder for sweep files anymore.
+
+  -------------------------------------
+  3. Binary Field Output Organization
+  -------------------------------------
+
+To avoid clutter from many field dumps, binary outputs are stored as:
+
+output/ struc001/ fields/ sim001/ Pm_xxxxxx.bin Ps_xxxxxx.bin sim002/
+
+This keeps sweep text files clean while grouping field dumps by
+simulation.
+
+  ----------------------------------
+  4. Reduced Binary Dump Frequency
+  ----------------------------------
+
+Previously: - Field dumps occurred at every output step (~85 per sweep).
+
+Now: - Dumps are reduced using a stride-based sampling. - Roughly ~20
+dumps per sweep (not exact).
+
+Implementation: - A separate output-row counter is used instead of
+timestep count. - Dumps occur approximately every few sweep rows.
+
+  -----------------------
+  5. Safe Path Handling
+  -----------------------
+
+All path formatting now uses safe_snprintf() instead of sprintf().
+
+Purpose: - Prevent buffer overflow - Avoid truncated filenames - Improve
+robustness for long paths
+
+  ---------------------------------
+  6. Automatic Directory Creation
+  ---------------------------------
+
+Directories are automatically created using:
+
+    make_dir_p(path)
+
+No manual folder setup is required.
+
+  -------------------------------------
+  7. No Changes To Simulation Physics
+  -------------------------------------
+
+The following remain unchanged:
+
+-   Phase-field formulation
+-   TDGL evolution scheme
+-   Electrostatics / vacancy transport
+-   Input parameter format
+-   Parameter calibration
+-   Sweep data structure
+
+  ---------
+  Summary
+  ---------
+
+Key improvements:
+
+1.  Sequential multi-microstructure simulation capability.
+2.  Cleaner output directory organization.
+3.  Reduced number of binary field dumps.
+4.  Safer file handling.
+
+No changes to model physics.
+
+---------------------------------------------------------------------
+8. Generating Microstructures and Populating inputs/struc*/ Directories
+---------------------------------------------------------------------
+
+Microstructures are generated using the separate generator code:
+    genpolycr_layered
+
+To generate single-layer (1L) structures in the format expected by the
+modified simulation code:
+
+1) Open the generator source (genpolycr_layered) and set:
+       int layer_counts[]  = {10};
+       int n_layers        = 1;
+
+2) Compile the generator.
+
+3) Run the generator once to create ONE microstructure. It will produce:
+       gchar.txt
+       gnumb.txt
+       gdata.bin
+
+4) Rename the outputs to the expected polycrystal names:
+       gchar_poly.txt
+       gnumb_poly.txt
+       gdata_poly.bin
+
+5) Create a structure directory and place the renamed files inside it:
+       inputs/struc1/
+           gchar_poly.txt
+           gdata_poly.bin
+
+6) Repeat steps (3)–(5) to create additional structures:
+       inputs/struc2/
+       inputs/struc3/
+       ...
+   Each run of the generator produces one independent microstructure.
+   For each new structure, re-run the generator and copy/rename outputs
+   into the next inputs/struc* directory.
+
+Notes:
+- ng_total is constant across structures (same grain count file format).
+- Only “compile + run” is needed repeatedly to generate many structures,
+  then organize them into inputs/struc* directories as shown above.
+

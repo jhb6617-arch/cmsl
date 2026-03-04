@@ -1,0 +1,38 @@
+device_flag = 0
+nx = 940 
+ny = 940
+nz = 10
+del_h = 1.0
+del_t = 0.01
+delEap = 1.5e+07 
+Eap = 3.0e+08
+num_steps = 800 
+out_flag = 1
+dep_flag = 0
+
+#DE
+L_de = 1.0
+kappa_de = 2.5e-09
+
+#FE
+kappa_fe = 5.066e-10 
+L_fe = 0.833
+
+#AFE
+kappa_afe = 1.0e-09 
+L_afe = 0.2
+dimx = 8
+dimy = 4
+dimz = 4
+crystal_type = poly 
+PsNoise = 0.01
+n_layers = 1
+layer_counts = 10 
+use_single_params = yes
+G0 = 1.0
+omg = 0.075
+eps_fe = 30.0
+eps_afe = 40.0
+eps_de = 15.0
+z_bc_type = diri 
+do_pre_relax = 0
