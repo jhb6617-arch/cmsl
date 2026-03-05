@@ -13,7 +13,7 @@
 #define PATHBUF 4000
 
 // prototypes
-int readParamsFromFile(FILE *fp, double *afe, double *fe, double *de, int *ref);
+int readParamsFromFile(FILE *fp, int *ref);
 double compute_p0(double alpha, double beta, double g, double gamma1, int transition_type);
 PhaseRefs make_phase_refs(MaterialParamsRaw raw);
 MaterialNorm make_nd_wrt_reference(MaterialParamsRaw raw, PhaseRefs Ref);
