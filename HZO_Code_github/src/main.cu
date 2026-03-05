@@ -2,6 +2,7 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <math.h>
+#include <time.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <errno.h>
@@ -48,12 +49,10 @@ void BuildInterfaceFlag()
 
     build_interface_flag<<<b, t>>>(omega_d, d_grain_mat, d_is_interface, nx, ny, nz);
     CHECK_KERNEL();
-
 }
 
 
 static void trim_token_inplace(char *s) {
-    // cut at first whitespace or CR/LF
     s[strcspn(s, " \t\r\n")] = '\0';
 }
 
@@ -70,36 +69,69 @@ static void reset_evolve_state(void) {
     saved_Emax = saved_E0 = saved_Emin = false;
 }
 
-int readParamsFromFile(FILE *fp,
-                       double *afe_frac_pct, double *fe_frac_pct,
-                       double *de_frac_pct, int *ref_type_out)
+// =========================================================
+// Phase fraction pool (separated from Landau coefficients)
+// =========================================================
+#define MAX_PHASE_POOL 20000
+static double g_afe_pool[MAX_PHASE_POOL];
+static double g_fe_pool[MAX_PHASE_POOL];
+static double g_de_pool[MAX_PHASE_POOL];
+static int    g_pool_size = 0;
+
+static void LoadPhasePool(const char *filename)
+{
+    FILE *fp = fopen(filename, "r");
+    if (!fp) { perror("Error opening phase_pool.txt"); exit(1); }
+
+    g_pool_size = 0;
+    while (g_pool_size < MAX_PHASE_POOL) {
+        double a, f, d;
+        if (fscanf(fp, "%lf %lf %lf", &a, &f, &d) != 3) break;
+        g_afe_pool[g_pool_size] = a / 100.0;
+        g_fe_pool[g_pool_size]  = f / 100.0;
+        g_de_pool[g_pool_size]  = d / 100.0;
+        g_pool_size++;
+    }
+    fclose(fp);
+    printf("Phase pool loaded: %d entries from '%s'\n", g_pool_size, filename);
+}
+
+static void PickPhaseFractions(double *afe_out, double *fe_out, double *de_out)
+{
+    int idx = rand() % g_pool_size;
+    *afe_out = g_afe_pool[idx];
+    *fe_out  = g_fe_pool[idx];
+    *de_out  = g_de_pool[idx];
+}
+
+// =========================================================
+// Parameter file parsing  (Landau only, 13 fields + label)
+// =========================================================
+int readParamsFromFile(FILE *fp, int *ref_type_out)
 {
     double afe_alpha, afe_beta, afe_gamma1, afe_g, afe_a0;
     double fe_alpha,  fe_beta,  fe_gamma1,  fe_g,  fe_a0;
     double de_alpha,  de_a0;
-    double afe_frac,  fe_frac,  de_frac;
     char   ref_str[8];
     char   line[512];
 
     for (;;) {
         if (!fgets(line, sizeof(line), fp)) return 0; // EOF / read error
 
-        // skip whitespace
         char *p = line;
         while (isspace((unsigned char)*p)) p++;
 
-        // skip blank / comment
         if (*p == '\0' || *p == '\n' || *p == '#') continue;
 
         int n = sscanf(p, "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf "
-	                  "%lf %lf %lf %lf %lf %7s",
+                          "%lf %lf %7s",
             &afe_alpha, &afe_beta, &afe_gamma1, &afe_g, &afe_a0,
             &fe_alpha,  &fe_beta,  &fe_gamma1,  &fe_g,  &fe_a0,
-            &de_alpha,  &de_a0,  &afe_frac,  &fe_frac,  &de_frac, ref_str);
+            &de_alpha,  &de_a0,  ref_str);
 
-        if (n != 16) {
+        if (n != 13) {
             fprintf(stderr,
-                "readParamsFromFile: expected 16 fields, got %d in line:\n%s\n",
+                "readParamsFromFile: expected 13 fields, got %d in line:\n%s\n",
                 n, line);
             return -1;
         }
@@ -136,38 +168,24 @@ int readParamsFromFile(FILE *fp,
         DE_raw.a0     = de_a0;
         DE_raw.transition_type = DE_TYPE;
 
-        // --- Fractions in % from file ---
-        *afe_frac_pct = afe_frac;
-        *fe_frac_pct  = fe_frac;
-        *de_frac_pct  = de_frac;
-
         *ref_type_out = ref_type;
         return 1;
     }
 }
 
 typedef struct {
-    double afe;     // 0..1
-    double fe;      // 0..1
-    double de;      // 0..1
-    int    ref_type;
+    int ref_type;
 } LayerData;
 
 static int read_one_layer(FILE *fp, LayerData *out, int *line_num)
 {
-    double afe_pct, fe_pct, de_pct;
     int ref_type;
 
-    int status = readParamsFromFile(fp, &afe_pct, &fe_pct, &de_pct, &ref_type);
+    int status = readParamsFromFile(fp, &ref_type);
     if (status <= 0) return status; // 0 EOF, -1 parse error
 
-    (*line_num)++; // counts records (layers)
-
-    out->afe = afe_pct / 100.0;
-    out->fe  = fe_pct  / 100.0;
-    out->de  = de_pct  / 100.0;
+    (*line_num)++;
     out->ref_type = ref_type;
-
     return 1;
 }
 
@@ -180,19 +198,14 @@ static int read_one_sim_block(FILE *fp, int n_layers, int *line_num, int *first_
         LayerData ld;
         int st = read_one_layer(fp, &ld, line_num);
 
-        if (st == 0) return (L == 0) ? 0 : -2; // boundary vs mid-block EOF
+        if (st == 0) return (L == 0) ? 0 : -2;
         if (st < 0)  return -1;
-
-        afe_frac_layer[L] = ld.afe;
-        fe_frac_layer[L]  = ld.fe;
-        de_frac_layer[L]  = ld.de;
 
         if (L == 0) first_ref = ld.ref_type;
         else if (ld.ref_type != first_ref)
             printf("Warning: ref_mat differs between layers. Using first layer value.\n");
 
-        printf("Line %d (layer %d): AFE=%.1f%% FE=%.1f%% DE=%.1f%% Ref=%d\n",
-               *line_num, L, ld.afe * 100.0, ld.fe * 100.0, ld.de * 100.0, ld.ref_type);
+        printf("Line %d (layer %d): Ref=%d\n", *line_num, L, ld.ref_type);
     }
 
     *first_ref_type_out = first_ref;
@@ -217,11 +230,10 @@ static const MaterialParamsRaw* pick_ref_raw(int ref_type, const char **name_out
 double compute_p0(double alpha, double beta, double g, double gamma1, int transition_type)
 {
     if (transition_type == 2) {
-        // (your DE/linear special case — keeping your current behavior)
         return 2.0 * sqrt((g - alpha) / beta);
     } else {
         double disc = beta * beta - 4.0 * gamma1 * (alpha - g);
-        if (disc < 0.0 && disc > -1e-14) disc = 0.0; // tiny numerical protection
+        if (disc < 0.0 && disc > -1e-14) disc = 0.0;
         if (disc < 0.0) return 1.0;
 
         double Num = 2.0 * fabs(beta) + 2.0 * sqrt(disc);
@@ -235,7 +247,6 @@ PhaseRefs make_phase_refs(MaterialParamsRaw raw)
     PhaseRefs R;
     R.alpha_ref = fabs(raw.alpha);
 
-    // Linear dielectric / nonpolar
     if (raw.beta == 0.0 && raw.gamma1 == 0.0 && raw.g == 0.0) {
         R.P0_ref = 1.0;
     } else {
@@ -248,8 +259,6 @@ PhaseRefs make_phase_refs(MaterialParamsRaw raw)
     return R;
 }
 
-// NOTE: this is NOT "local per-phase" because you pass the chosen reference scales (Rg).
-// Rename it to match what it actually does:
 MaterialNorm make_nd_wrt_reference(MaterialParamsRaw raw, const PhaseRefs Ref)
 {
     MaterialNorm N;
@@ -269,7 +278,6 @@ MaterialNorm make_nd_wrt_reference(MaterialParamsRaw raw, const PhaseRefs Ref)
 
     N.a0_nd = (4.0 * raw.a0) / Ref.alpha_ref;
 
-    // kinetics / gradient (keeping your formulas)
     N.L_nd     = 0.25 * raw.L * Ref.alpha_ref * t0;
     N.kappa_nd = raw.kappa / (Ref.alpha_ref * l0 * l0);
 
@@ -278,12 +286,10 @@ MaterialNorm make_nd_wrt_reference(MaterialParamsRaw raw, const PhaseRefs Ref)
 }
 
 // -------------------------
-// Setup + run one simulation (one block)
+// Setup + run one simulation
 // -------------------------
-
 void SetupAndRunSimulation(void)
 {
-    // A) Reference material
     const char *ref_name = NULL;
     const MaterialParamsRaw *Ref_raw = pick_ref_raw(current_ref_type, &ref_name);
 
@@ -306,7 +312,7 @@ void SetupAndRunSimulation(void)
     printf("f0_ref    = %e\n", f0_ref);
     printf("E0_ref    = %e\n", E0_ref);
 
-    // B) Global effective fractions (for logging)
+    // Global effective fractions (for logging)
     double T_afe = 0.0, T_fe = 0.0, T_de = 0.0;
     double total_weight = 0.0;
 
@@ -342,7 +348,6 @@ void SetupAndRunSimulation(void)
     printf("Global effective fractions (0–1): AFE=%.3f, FE=%.3f, DE=%.3f\n",
            afe_frac_global, fe_frac_global, de_frac_global);
 
-    // C) Build nondimensional parameters w.r.t chosen reference
     PhaseRefs Rg;
     Rg.alpha_ref = alpha_ref;
     Rg.P0_ref    = P0_ref;
@@ -357,15 +362,12 @@ void SetupAndRunSimulation(void)
     printf("AFE_nd: alpha=%+0.4f  beta=%+0.4f  gamma=%+0.4f  g=%+0.4f  a0=%+0.4f  kappa=%+0.4f  L=%+0.4f\n",
            N_AFE.alpha_nd, N_AFE.beta_nd, N_AFE.gamma_nd,
            N_AFE.g_nd, N_AFE.a0_nd, N_AFE.kappa_nd, N_AFE.L_nd);
-
     printf("FE_nd : alpha=%+0.4f  beta=%+0.4f  gamma=%+0.4f  g=%+0.4f  a0=%+0.4f  kappa=%+0.4f  L=%+0.4f\n",
            N_FE.alpha_nd, N_FE.beta_nd, N_FE.gamma_nd,
            N_FE.g_nd, N_FE.a0_nd, N_FE.kappa_nd, N_FE.L_nd);
-
     printf("DE_nd : alpha=%+0.4f  beta=%+0.4f  gamma=%+0.4f  g=%+0.4f  a0=%+0.4f  kappa=%+0.4f  L=%+0.4f\n",
            N_DE.alpha_nd, N_DE.beta_nd, N_DE.gamma_nd,
            N_DE.g_nd, N_DE.a0_nd, N_DE.kappa_nd, N_DE.L_nd);
-
     printf("------------------------------------------------------\n\n");
 
     double a1 = fabs(Ref_raw->alpha);
@@ -377,14 +379,12 @@ void SetupAndRunSimulation(void)
     printf("Nondimensional max field %0.4f and increment %0.4f\n", maxEz, delEz);
 
     Init_Conf();
-
     BuildInterfaceFlag();
-    
+
     time_to_change = num_steps;
     initcount = 0;
 
     reset_evolve_state();
-
     Evolve();
 }
 
@@ -395,13 +395,12 @@ int main(int argc, char *argv[])
 
     if (argc < 3) {
         fprintf(stderr,
-            "Usage: %s <offset_sims> <filename> [max_sims]\n"
-            "Example: %s 0 phase_table.txt 5\n",
+            "Usage: %s <offset_sims> <landau_file> [max_sims]\n"
+            "Example: %s 0 landau_params.txt 500\n",
             argv[0], argv[0]);
         return 1;
     }
 
-    // args
     int offset_sims = atoi(argv[1]);
     if (offset_sims < 0) offset_sims = 0;
 
@@ -409,11 +408,13 @@ int main(int argc, char *argv[])
     strncpy(filename, argv[2], sizeof(filename) - 1);
     filename[sizeof(filename) - 1] = '\0';
 
-    // max_sims default comes from global.cu: int max_sims = INT_MAX;
     if (argc >= 4) {
         max_sims = atoi(argv[3]);
         if (max_sims < 1) max_sims = 1;
     }
+
+    // random seed for phase fraction picking
+    srand((unsigned int)time(NULL));
 
     // params
     processInputParams("inputs/InputParams", "OutputParams");
@@ -422,6 +423,9 @@ int main(int argc, char *argv[])
     offset = offset_sims * h_n_layers;
     printf("Skipping %d simulations (%d layers)\n", offset_sims, offset);
     printf(">>> Will run up to %d simulations from this offset\n", max_sims);
+
+    // load phase fraction pool (1000 entries)
+    LoadPhasePool("inputs/phase_pool.txt");
 
     // grain tag
     char grain_tag[16];
@@ -433,8 +437,6 @@ int main(int argc, char *argv[])
     one_by_nxnynz = 1.0 / ((double)nx * ny * nz);
     cudaSetDevice(device_flag);
 
-    // Allocate with maximum possible grain count (voronoi generates up to 8500,
-    // capped at np=9000). Per-structure ng_total is read inside the loop.
     ng_total = 8500;
     AllocateData();
 
@@ -455,23 +457,32 @@ int main(int argc, char *argv[])
     else { fprintf(stderr, "Unsupported z_bc_type: %s\n", z_bc_type); rc = 1; goto cleanup; }
     cudaMemcpyToSymbol(d_zbc_type, &zbc_flag, sizeof(int));
 
-
+    // Auto-detect number of strucN folders in inputs/
+    n_struct = 0;
+    {
+        struct stat _st;
+        char _test[256];
+        for (int s = 1; ; ++s) {
+            snprintf(_test, sizeof(_test), "inputs/struc%d", s);
+            if (stat(_test, &_st) != 0 || !S_ISDIR(_st.st_mode)) break;
+            n_struct = s;
+        }
+    }
+    if (n_struct == 0) { fprintf(stderr, "No inputs/struc1 folder found. Exiting.\n"); rc = 1; goto cleanup; }
+    printf("Found %d structure(s) in inputs/\n", n_struct);
 
 for (int sid = 1; sid <= n_struct; ++sid) {
 
-    // 1) set structure input folder
     char struct_dir[256];
     snprintf(struct_dir, sizeof(struct_dir), "inputs/struc%d", sid);
 
-    // 2) set structure output folder (NO sim folder)
-    // output/struc001, output/struc002, ...
     set_output_dir_for_structure(sid);
 
-    // 3) open phase table fresh for this structure
+    // open landau param file fresh for each structure
     fp = fopen(filename, "r");
     if (!fp) { perror("Error opening input file"); rc = 1; goto cleanup; }
 
-    // 4) skip offset rows (same as your old logic)
+    // skip offset rows
     line_num = 0;
     for (int s = 0; s < offset; ++s) {
         LayerData tmp;
@@ -480,14 +491,12 @@ for (int sid = 1; sid <= n_struct; ++sid) {
         if (st < 0)  { printf("Parse error while skipping offset.\n"); rc = 1; goto cleanup; }
     }
 
-    // Read this structure's grain count, then load its grain structure
     ReadGrainCount(struct_dir, grain_tag);
     LoadGrainStructureFromDir(struct_dir, grain_tag);
 
-    // 5) now run ALL parameter sets for THIS structure
     for (long sims_started = 0; sims_started < max_sims; ++sims_started) {
 
-        sim_index = offset_sims + (int)sims_started + 1;  // 1,2,3...
+        sim_index = offset_sims + (int)sims_started + 1;
 
         printf("\n==== Structure %d, Param-set %d ====\n", sid, sim_index);
 
@@ -500,9 +509,19 @@ for (int sid = 1; sid <= n_struct; ++sid) {
 
         current_ref_type = first_ref_type;
 
-        // run this parameter-set
+        // Pick phase fractions randomly from pool (same set for all layers)
+        double picked_afe, picked_fe, picked_de;
+        PickPhaseFractions(&picked_afe, &picked_fe, &picked_de);
+        for (int L = 0; L < h_n_layers; L++) {
+            afe_frac_layer[L] = picked_afe;
+            fe_frac_layer[L]  = picked_fe;
+            de_frac_layer[L]  = picked_de;
+        }
+        printf("Picked fractions: AFE=%.1f%% FE=%.1f%% DE=%.1f%%\n",
+               picked_afe * 100.0, picked_fe * 100.0, picked_de * 100.0);
+
         reset_evolve_state();
-        SetupAndRunSimulation();   // writes: output_dir/sweep001.txt, sweep002.txt, ...
+        SetupAndRunSimulation();
     }
 
     fclose(fp);
@@ -510,7 +529,6 @@ for (int sid = 1; sid <= n_struct; ++sid) {
 
 next_structure:
     if (fp) { fclose(fp); fp = NULL; }
-
     printf("##### Finished ALL parameter sets for structure %d #####\n", sid);
 }
 
@@ -521,4 +539,3 @@ cleanup:
     Cleanup();
     return rc;
 }
-
