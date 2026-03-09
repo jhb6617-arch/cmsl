@@ -5,7 +5,7 @@ import subprocess
 # =====================================
 # 설정 부분 (WSL 절대 경로 적용)
 # =====================================
-NUM_STRUC = 100
+NUM_STRUC = 1000
 # 윈도우 C드라이브 경로를 WSL 방식(/mnt/c/...)으로 변경합니다.
 OUTPUT_DIR = "/mnt/c/Users/bangjinhyun/Desktop/lab/pankajcode/HZO_Code/inputs"
 
@@ -39,4 +39,4 @@ for i in range(1, NUM_STRUC + 1):
     # gnumb.txt를 각 struc 폴더에 저장 (구조마다 ng_total이 다르므로 각각 저장해야 함)
     shutil.copy(os.path.join(base_path, "gnumb.txt"), os.path.join(struc_dir, "gnumb_poly.txt"))
 
-print(f"\n✅ 완료! '{OUTPUT_DIR}' 폴더에 100개의 구조가 완벽하게 세팅되었습니다.")
+print(f"\n✅ 완료! '{OUTPUT_DIR}' 폴더에 {NUM_STRUC}개의 구조가 완벽하게 세팅되었습니다.")

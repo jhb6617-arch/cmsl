@@ -87,7 +87,7 @@ static void LoadPhasePool(const char *filename)
     while (g_pool_size < MAX_PHASE_POOL) {
         double a, f, d;
         if (fscanf(fp, "%lf %lf %lf", &a, &f, &d) != 3) break;
-        if (d > 70.0) continue;   // DE fraction must be <= 70%
+        if (d > 50.0) continue;   // DE fraction must be <= 50%
         g_afe_pool[g_pool_size] = a / 100.0;
         g_fe_pool[g_pool_size]  = f / 100.0;
         g_de_pool[g_pool_size]  = d / 100.0;

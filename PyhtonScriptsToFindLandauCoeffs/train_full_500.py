@@ -16,7 +16,7 @@ phase_pool_file = 'phase_pool.txt'       # 상분율 풀 (3필드: AFE%, FE%, DE
 DE_alpha = 9.5e+09
 DE_a0    = 2.372e+09
 
-NUM_LANDAU     = 500    # 란다우계수 대표점 (K-Means 결과)
+NUM_LANDAU     = 1000   # 란다우계수 대표점 (K-Means 결과)
 NUM_PHASE_POOL = 1000   # 상분율 풀 크기
 
 # ==========================================
