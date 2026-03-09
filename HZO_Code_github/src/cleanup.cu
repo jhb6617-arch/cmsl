@@ -24,7 +24,9 @@ void Cleanup()
     // Microstructure
     CHECK(cudaFree(eta_d));
     CHECK(cudaFree(phi_d));
+    CHECK(cudaFree(theta_d));
     CHECK(cudaFree(psi_d));
+    CHECK(cudaFree(TR_d));
     CHECK(cudaFree(omega_d));
 
     // Material parameter arrays

@@ -485,7 +485,7 @@ int main(int argc, char *argv[])
             fprintf(stderr,
                 "Warning: ng_total=%d > ng_max=%d for %s, skipping.\n",
                 ng_total, ng_max, struct_dir);
-            ng_total = ng_max;
+            continue;
         }
         LoadGrainStructureFromDir(struct_dir, grain_tag);
 

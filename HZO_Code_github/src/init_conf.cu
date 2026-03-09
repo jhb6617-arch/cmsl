@@ -280,7 +280,10 @@ void Init_Conf() {
 
     // -------------------------------------------------------------------
     // 6) Copy grain_mat to GPU
+    //    Reset entire pre-allocated range first so stale data from a
+    //    previous (larger) simulation cannot be accidentally accessed.
     // -------------------------------------------------------------------
+    CHECK(cudaMemset(d_grain_mat, 0xFF, ng_total * sizeof(int)));  // 0xFF = -1 (unassigned)
     CHECK(cudaMemcpy(d_grain_mat, grain_mat, ng_total * sizeof(int),
                      cudaMemcpyHostToDevice));
 
