@@ -87,13 +87,14 @@ static void LoadPhasePool(const char *filename)
     while (g_pool_size < MAX_PHASE_POOL) {
         double a, f, d;
         if (fscanf(fp, "%lf %lf %lf", &a, &f, &d) != 3) break;
+        if (d > 70.0) continue;   // DE fraction must be <= 70%
         g_afe_pool[g_pool_size] = a / 100.0;
         g_fe_pool[g_pool_size]  = f / 100.0;
         g_de_pool[g_pool_size]  = d / 100.0;
         g_pool_size++;
     }
     fclose(fp);
-    printf("Phase pool loaded: %d entries from '%s'\n", g_pool_size, filename);
+    printf("Phase pool loaded: %d entries (DE<=70%%) from '%s'\n", g_pool_size, filename);
 }
 
 static void PickPhaseFractions(double *afe_out, double *fe_out, double *de_out)
@@ -105,112 +106,81 @@ static void PickPhaseFractions(double *afe_out, double *fe_out, double *de_out)
 }
 
 // =========================================================
-// Parameter file parsing  (Landau only, 13 fields + label)
+// Landau coefficient pool (alpha,beta,gamma1,g,a0 per phase)
+// L, kappa, eps_r stay fixed from InputParams
 // =========================================================
-int readParamsFromFile(FILE *fp, int *ref_type_out)
+typedef struct {
+    double alpha, beta, gamma1, g, a0;  // AFE
+    double fe_alpha, fe_beta, fe_gamma1, fe_g, fe_a0;  // FE
+    double de_alpha, de_a0;             // DE
+    int ref_type;
+} LandauSet;
+
+#define MAX_LANDAU_POOL 2000
+static LandauSet g_landau_pool[MAX_LANDAU_POOL];
+static int g_landau_pool_size = 0;
+
+static void LoadLandauPool(const char *filename)
 {
-    double afe_alpha, afe_beta, afe_gamma1, afe_g, afe_a0;
-    double fe_alpha,  fe_beta,  fe_gamma1,  fe_g,  fe_a0;
-    double de_alpha,  de_a0;
-    char   ref_str[8];
-    char   line[512];
+    FILE *fp = fopen(filename, "r");
+    if (!fp) { perror("Error opening landau pool file"); exit(1); }
 
-    for (;;) {
-        if (!fgets(line, sizeof(line), fp)) return 0; // EOF / read error
-
+    g_landau_pool_size = 0;
+    char line[512];
+    while (g_landau_pool_size < MAX_LANDAU_POOL) {
+        if (!fgets(line, sizeof(line), fp)) break;
         char *p = line;
         while (isspace((unsigned char)*p)) p++;
+        if (*p == '\0' || *p == '#') continue;
 
-        if (*p == '\0' || *p == '\n' || *p == '#') continue;
-
-        int n = sscanf(p, "%lf %lf %lf %lf %lf %lf %lf %lf %lf %lf "
-                          "%lf %lf %7s",
-            &afe_alpha, &afe_beta, &afe_gamma1, &afe_g, &afe_a0,
-            &fe_alpha,  &fe_beta,  &fe_gamma1,  &fe_g,  &fe_a0,
-            &de_alpha,  &de_a0,  ref_str);
-
-        if (n != 13) {
-            fprintf(stderr,
-                "readParamsFromFile: expected 13 fields, got %d in line:\n%s\n",
-                n, line);
-            return -1;
-        }
+        LandauSet ls;
+        char ref_str[8];
+        int n = sscanf(p,
+            "%lf %lf %lf %lf %lf "
+            "%lf %lf %lf %lf %lf "
+            "%lf %lf %7s",
+            &ls.alpha,    &ls.beta,    &ls.gamma1,    &ls.g,    &ls.a0,
+            &ls.fe_alpha, &ls.fe_beta, &ls.fe_gamma1, &ls.fe_g, &ls.fe_a0,
+            &ls.de_alpha, &ls.de_a0,  ref_str);
+        if (n != 13) continue;
 
         trim_token_inplace(ref_str);
+        ls.ref_type = ref_type_from_str(ref_str);
+        if (ls.ref_type < 0) continue;
 
-        int ref_type = ref_type_from_str(ref_str);
-        if (ref_type < 0) {
-            fprintf(stderr, "readParamsFromFile: unknown Ref_mat '%s'\n", ref_str);
-            return -1;
-        }
-
-        // --- Fill AFE raw ---
-        AFE_raw.alpha  = afe_alpha;
-        AFE_raw.beta   = afe_beta;
-        AFE_raw.gamma1 = afe_gamma1;
-        AFE_raw.g      = afe_g;
-        AFE_raw.a0     = afe_a0;
-        AFE_raw.transition_type = AFE_TYPE;
-
-        // --- Fill FE raw ---
-        FE_raw.alpha  = fe_alpha;
-        FE_raw.beta   = fe_beta;
-        FE_raw.gamma1 = fe_gamma1;
-        FE_raw.g      = fe_g;
-        FE_raw.a0     = fe_a0;
-        FE_raw.transition_type = FE_TYPE;
-
-        // --- Fill DE raw ---
-        DE_raw.alpha  = de_alpha;
-        DE_raw.beta   = 0.0;
-        DE_raw.gamma1 = 0.0;
-        DE_raw.g      = 0.0;
-        DE_raw.a0     = de_a0;
-        DE_raw.transition_type = DE_TYPE;
-
-        *ref_type_out = ref_type;
-        return 1;
+        g_landau_pool[g_landau_pool_size++] = ls;
     }
+    fclose(fp);
+    printf("Landau pool loaded: %d entries from '%s'\n", g_landau_pool_size, filename);
 }
 
-typedef struct {
-    int ref_type;
-} LayerData;
-
-static int read_one_layer(FILE *fp, LayerData *out, int *line_num)
+/* Copy one randomly picked Landau set into AFE_raw/FE_raw/DE_raw.
+   L, kappa, eps_r are preserved (they come from InputParams). */
+static void PickLandauSet(int *picked_idx_out)
 {
-    int ref_type;
+    int idx = rand() % g_landau_pool_size;
+    const LandauSet *ls = &g_landau_pool[idx];
 
-    int status = readParamsFromFile(fp, &ref_type);
-    if (status <= 0) return status; // 0 EOF, -1 parse error
+    AFE_raw.alpha  = ls->alpha;    AFE_raw.beta  = ls->beta;
+    AFE_raw.gamma1 = ls->gamma1;   AFE_raw.g     = ls->g;
+    AFE_raw.a0     = ls->a0;
 
-    (*line_num)++;
-    out->ref_type = ref_type;
-    return 1;
+    FE_raw.alpha   = ls->fe_alpha; FE_raw.beta   = ls->fe_beta;
+    FE_raw.gamma1  = ls->fe_gamma1;FE_raw.g      = ls->fe_g;
+    FE_raw.a0      = ls->fe_a0;
+
+    DE_raw.alpha   = ls->de_alpha; DE_raw.beta   = 0.0;
+    DE_raw.gamma1  = 0.0;          DE_raw.g      = 0.0;
+    DE_raw.a0      = ls->de_a0;
+
+    current_ref_type = ls->ref_type;
+    *picked_idx_out  = idx;
 }
 
-// returns: 1 ok, 0 clean EOF at boundary, -2 unexpected EOF mid-block, -1 parse error
-static int read_one_sim_block(FILE *fp, int n_layers, int *line_num, int *first_ref_type_out)
-{
-    int first_ref = -1;
+// =========================================================
+// Parameter file parsing  (Landau only, 13 fields + label)
+// =========================================================
 
-    for (int L = 0; L < n_layers; ++L) {
-        LayerData ld;
-        int st = read_one_layer(fp, &ld, line_num);
-
-        if (st == 0) return (L == 0) ? 0 : -2;
-        if (st < 0)  return -1;
-
-        if (L == 0) first_ref = ld.ref_type;
-        else if (ld.ref_type != first_ref)
-            printf("Warning: ref_mat differs between layers. Using first layer value.\n");
-
-        printf("Line %d (layer %d): Ref=%d\n", *line_num, L, ld.ref_type);
-    }
-
-    *first_ref_type_out = first_ref;
-    return 1;
-}
 
 static const MaterialParamsRaw* pick_ref_raw(int ref_type, const char **name_out)
 {
@@ -391,12 +361,11 @@ void SetupAndRunSimulation(void)
 int main(int argc, char *argv[])
 {
     int rc = 0;
-    FILE *fp = NULL;
 
-    if (argc < 3) {
+    if (argc < 4) {
         fprintf(stderr,
-            "Usage: %s <offset_sims> <landau_file> [max_sims]\n"
-            "Example: %s 0 landau_params.txt 500\n",
+            "Usage: %s <offset_sims> <landau_pool_file> <phase_pool_file> [max_sims]\n"
+            "Example: %s 0 inputs/landau_pool.txt inputs/phase_pool.txt 500\n",
             argv[0], argv[0]);
         return 1;
     }
@@ -404,28 +373,27 @@ int main(int argc, char *argv[])
     int offset_sims = atoi(argv[1]);
     if (offset_sims < 0) offset_sims = 0;
 
-    char filename[256];
-    strncpy(filename, argv[2], sizeof(filename) - 1);
-    filename[sizeof(filename) - 1] = '\0';
+    const char *landau_file = argv[2];
+    const char *phase_file  = argv[3];
 
-    if (argc >= 4) {
-        max_sims = atoi(argv[3]);
+    if (argc >= 5) {
+        max_sims = atoi(argv[4]);
         if (max_sims < 1) max_sims = 1;
+    } else {
+        max_sims = 500;  // default: 500 sims per KISTI job
     }
 
-    // random seed for phase fraction picking
-    srand((unsigned int)time(NULL));
+    // Use offset_sims to seed differently across KISTI jobs
+    srand((unsigned int)(time(NULL) + (unsigned int)offset_sims * 1234567u));
 
-    // params
+    // Fixed params (L, kappa, eps_r, grid dims, etc.)
     processInputParams("inputs/InputParams", "OutputParams");
     printf("Parameters processed successfully\n");
+    printf(">>> offset_sims=%d, will run %d simulations\n", offset_sims, max_sims);
 
-    offset = offset_sims * h_n_layers;
-    printf("Skipping %d simulations (%d layers)\n", offset_sims, offset);
-    printf(">>> Will run up to %d simulations from this offset\n", max_sims);
-
-    // load phase fraction pool (1000 entries)
-    LoadPhasePool("inputs/phase_pool.txt");
+    // Load pools
+    LoadLandauPool(landau_file);
+    LoadPhasePool(phase_file);
 
     // grain tag
     char grain_tag[16];
@@ -433,12 +401,13 @@ int main(int argc, char *argv[])
     else if (!strcmp(crystal_type, "poly"))   strcpy(grain_tag, "poly");
     else { fprintf(stderr, "Invalid crystal_type\n"); return 1; }
 
-    // init GPU + data
+    // init GPU + data (allocate for max possible ng_total)
     one_by_nxnynz = 1.0 / ((double)nx * ny * nz);
     cudaSetDevice(device_flag);
 
     ng_total = 8500;
     AllocateData();
+    const int ng_max = ng_total;  // hard upper limit for grain arrays
 
     evolve_resources_init();
 
@@ -471,45 +440,30 @@ int main(int argc, char *argv[])
     if (n_struct == 0) { fprintf(stderr, "No inputs/struc1 folder found. Exiting.\n"); rc = 1; goto cleanup; }
     printf("Found %d structure(s) in inputs/\n", n_struct);
 
-for (int sid = 1; sid <= n_struct; ++sid) {
+    // Single flat output directory: output/
+    snprintf(output_dir, sizeof(output_dir), "output");
+    make_dir_p(output_dir);
+    printf("Output dir: %s\n", output_dir);
 
-    char struct_dir[256];
-    snprintf(struct_dir, sizeof(struct_dir), "inputs/struc%d", sid);
+    // =========================================================
+    // Main random-sampling loop  (500 sims per KISTI job)
+    // Each sim independently picks:
+    //   1 Landau set  (from 1000-set pool)
+    //   1 Phase fraction set  (from 1000-set pool, DE<=70%)
+    //   1 Polycrystalline structure  (from n_struct folders)
+    // =========================================================
+    for (int global_sim = 0; global_sim < max_sims; ++global_sim) {
 
-    set_output_dir_for_structure(sid);
+        sim_index = offset_sims + global_sim + 1;
+        printf("\n==== Simulation %d (job_sim %d/%d) ====\n",
+               sim_index, global_sim + 1, max_sims);
 
-    // open landau param file fresh for each structure
-    fp = fopen(filename, "r");
-    if (!fp) { perror("Error opening input file"); rc = 1; goto cleanup; }
+        // --- 1. Pick random Landau coefficient set ---
+        int landau_idx = -1;
+        PickLandauSet(&landau_idx);
+        printf("Landau set #%d  ref_type=%d\n", landau_idx, current_ref_type);
 
-    // skip offset rows
-    line_num = 0;
-    for (int s = 0; s < offset; ++s) {
-        LayerData tmp;
-        int st = read_one_layer(fp, &tmp, &line_num);
-        if (st == 0) { printf("EOF while skipping offset.\n"); fclose(fp); fp = NULL; goto next_structure; }
-        if (st < 0)  { printf("Parse error while skipping offset.\n"); rc = 1; goto cleanup; }
-    }
-
-    ReadGrainCount(struct_dir, grain_tag);
-    LoadGrainStructureFromDir(struct_dir, grain_tag);
-
-    for (long sims_started = 0; sims_started < max_sims; ++sims_started) {
-
-        sim_index = offset_sims + (int)sims_started + 1;
-
-        printf("\n==== Structure %d, Param-set %d ====\n", sid, sim_index);
-
-        int first_ref_type = -1;
-        int st = read_one_sim_block(fp, h_n_layers, &line_num, &first_ref_type);
-
-        if (st == 0) { printf("Reached EOF cleanly.\n"); break; }
-        if (st == -2) { fprintf(stderr, "Unexpected EOF inside %d-layer block.\n", h_n_layers); rc = 1; goto cleanup; }
-        if (st < 0)  { fprintf(stderr, "Parse error near record %d\n", line_num); rc = 1; goto cleanup; }
-
-        current_ref_type = first_ref_type;
-
-        // Pick phase fractions randomly from pool (same set for all layers)
+        // --- 2. Pick random phase fractions ---
         double picked_afe, picked_fe, picked_de;
         PickPhaseFractions(&picked_afe, &picked_fe, &picked_de);
         for (int L = 0; L < h_n_layers; L++) {
@@ -517,24 +471,35 @@ for (int sid = 1; sid <= n_struct; ++sid) {
             fe_frac_layer[L]  = picked_fe;
             de_frac_layer[L]  = picked_de;
         }
-        printf("Picked fractions: AFE=%.1f%% FE=%.1f%% DE=%.1f%%\n",
+        printf("Fractions: AFE=%.1f%%  FE=%.1f%%  DE=%.1f%%\n",
                picked_afe * 100.0, picked_fe * 100.0, picked_de * 100.0);
 
+        // --- 3. Pick random polycrystalline structure ---
+        int sid = 1 + (rand() % n_struct);
+        char struct_dir[256];
+        snprintf(struct_dir, sizeof(struct_dir), "inputs/struc%d", sid);
+        printf("Structure: %s\n", struct_dir);
+
+        ReadGrainCount(struct_dir, grain_tag);
+        if (ng_total > ng_max) {
+            fprintf(stderr,
+                "Warning: ng_total=%d > ng_max=%d for %s, skipping.\n",
+                ng_total, ng_max, struct_dir);
+            ng_total = ng_max;
+        }
+        LoadGrainStructureFromDir(struct_dir, grain_tag);
+
+        // Reset depolarization field so it reinitialises for new structure
+        phi_dep_initialized = false;
+
+        // --- 4. Run simulation ---
         reset_evolve_state();
         SetupAndRunSimulation();
     }
 
-    fclose(fp);
-    fp = NULL;
-
-next_structure:
-    if (fp) { fclose(fp); fp = NULL; }
-    printf("##### Finished ALL parameter sets for structure %d #####\n", sid);
-}
-
+    printf("\n##### Finished %d simulations #####\n", max_sims);
 
 cleanup:
-    if (fp) fclose(fp);
     evolve_resources_cleanup();
     Cleanup();
     return rc;
