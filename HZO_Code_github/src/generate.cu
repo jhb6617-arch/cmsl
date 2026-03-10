@@ -8,27 +8,6 @@
 #include <ctype.h> 
 
 
-void write_vector_field_binary(const char* filename, double *Px, double *Py, double *Pz, int nx, int ny, int nz, double p0) {
-           FILE *f = fopen(filename, "wb");
-    if (!f) {
-        fprintf(stderr, "Error opening file %s\n", filename);
-        exit(1);
-    }
-
-    int N = nx * ny * nz;
-    // Write all three components interleaved: (vx, vy, vz) for each point
-    for (int i = 0; i < N; i++) {
-        double x = Px[i] * p0;
-        double y = Py[i] * p0;
-        double z = Pz[i] * p0;
-        fwrite(&x, sizeof(double), 1, f);
-        fwrite(&y, sizeof(double), 1, f);
-        fwrite(&z, sizeof(double), 1, f);
-    }
-
-    fclose(f);
-}
-
 
 void write_field(const char *filename, int *Pmz, int nx, int ny, int nz, double p0){
         /*
@@ -263,42 +242,4 @@ cleanup:
     free(Ez);
 }
 
-void save_snapshot(const char *tag,
-                   double *Pmx_d, double *Pmy_d, double *Pmz_d,
-                   double *Psx_d, double *Psy_d, double *Psz_d, double P0_scale)
-{
-    char fnamePm[256], fnamePs[256];
-
-
-    sprintf(fnamePm,  "output/microstructures/%s_pm.bin",  tag);
-    sprintf(fnamePs,  "output/microstructures/%s_ps.bin",  tag);
-
-    size_t nbytes = nx * ny * nz * sizeof(double);
-
-    double *Pmx_h = (double*)malloc(nbytes);
-    double *Pmy_h = (double*)malloc(nbytes);
-    double *Pmz_h = (double*)malloc(nbytes);
-    double *Psx_h = (double*)malloc(nbytes);
-    double *Psy_h = (double*)malloc(nbytes);
-    double *Psz_h = (double*)malloc(nbytes);
-
-    CHECK(cudaMemcpy(Pmx_h, Pmx_d, nbytes, cudaMemcpyDeviceToHost));
-    CHECK(cudaMemcpy(Pmy_h, Pmy_d, nbytes, cudaMemcpyDeviceToHost));
-    CHECK(cudaMemcpy(Pmz_h, Pmz_d, nbytes, cudaMemcpyDeviceToHost));
-    CHECK(cudaMemcpy(Psx_h, Psx_d, nbytes, cudaMemcpyDeviceToHost));
-    CHECK(cudaMemcpy(Psy_h, Psy_d, nbytes, cudaMemcpyDeviceToHost));
-    CHECK(cudaMemcpy(Psz_h, Psz_d, nbytes, cudaMemcpyDeviceToHost));
-
-    // Scale by P0_scale 
-    write_vector_field_binary(fnamePm, Pmx_h, Pmy_h, Pmz_h, nx, ny, nz, P0_scale);
-
-    write_vector_field_binary(fnamePs, Psx_h, Psy_h, Psz_h, nx, ny, nz, P0_scale);
-
-    free(Pmx_h);
-    free(Pmy_h);
-    free(Pmz_h);
-    free(Psx_h);
-    free(Psy_h);
-    free(Psz_h);
-}
 

@@ -8,23 +8,6 @@
 
 // -----------------------------------------------------------------------------
 // Resource helpers (unchanged)
-// -----------------------------------------------------------------------------
-void allocate_host_buffers() {
-    if (Pmx == NULL && out_flag == 1) {
-        size_t size = sizeof(double) * nx * ny * nz;
-        Pmx = (double *)malloc(size);
-        Pmy = (double *)malloc(size);
-        Pmz = (double *)malloc(size);
-        Psx = (double *)malloc(size);
-        Psy = (double *)malloc(size);
-        Psz = (double *)malloc(size);
-        if (!Pmx || !Pmy || !Pmz || !Psx || !Psy || !Psz) {
-            printf("Host malloc failed\n");
-            exit(1);
-        }
-    }
-}
-
 void allocate_cuda_resources() {
     if (Psum_d == NULL) {
         CHECK(cudaMalloc((void**)&Psum_d, sizeof(double)));
@@ -77,7 +60,6 @@ void free_cuda_resources() {
 }
 
 void evolve_resources_init() {
-    allocate_host_buffers();
     allocate_cuda_resources();
     create_cuda_events();
 }
@@ -91,7 +73,6 @@ void evolve_resources_cleanup() {
 void Evolve() {
 
     printf("Now in evolve.\n");
-    int out_row = 0;
     const size_t Nvox     = (size_t)nx * ny * nz;
     int ndiv = 6, incr = 0, time_to_output;
     double dimE = 0.0;
@@ -231,13 +212,6 @@ void Evolve() {
 
     // ---- Stage B: main sweeping loop ----
 
-
-int stride = 4;  
-
-char field_dir[PATHBUF];
-safe_snprintf(field_dir, sizeof(field_dir), "%s/sim%03d", output_dir, sim_index);
-make_dir_p(field_dir);
-
     Ez_prev = Ez_ext;
 
     while (peloop < 2) {
@@ -280,29 +254,6 @@ make_dir_p(field_dir);
         if (steps_since_change >= relax_steps_here) {
 
 	   double E_prev_MVcm = Ez_prev * Ez_scale;
-
-if (peloop > 0 && out_flag == 1) {
-
-    out_row++;  // 1 for first written row (e.g., 18400), 2 for next (19200), ...
-
-    if ((out_row % stride) == 1) {   // dumps row 1, 1+stride, 1+2*stride, ...
-        char fnamePm[PATHBUF], fnamePs[PATHBUF];
-
-        safe_snprintf(fnamePm, sizeof(fnamePm), "%s/Pm_%06d.bin", field_dir, count);
-        safe_snprintf(fnamePs, sizeof(fnamePs), "%s/Ps_%06d.bin", field_dir, count);
-
-        CHECK(cudaMemcpy(Pmx, Pmx_old_d, nvox*sizeof(double), cudaMemcpyDeviceToHost));
-        CHECK(cudaMemcpy(Psx, Psx_old_d, nvox*sizeof(double), cudaMemcpyDeviceToHost));
-        CHECK(cudaMemcpy(Pmy, Pmy_old_d, nvox*sizeof(double), cudaMemcpyDeviceToHost));
-        CHECK(cudaMemcpy(Psy, Psy_old_d, nvox*sizeof(double), cudaMemcpyDeviceToHost));
-        CHECK(cudaMemcpy(Pmz, Pmz_old_d, nvox*sizeof(double), cudaMemcpyDeviceToHost));
-        CHECK(cudaMemcpy(Psz, Psz_old_d, nvox*sizeof(double), cudaMemcpyDeviceToHost));
-
-        write_vector_field_binary(fnamePm, Pmx, Pmy, Pmz, nx, ny, nz, P0_scale);
-        write_vector_field_binary(fnamePs, Psx, Psy, Psz, nx, ny, nz, P0_scale);
-    }
-}
-
 
            // global Pm_z (lab-frame)
            cub::DeviceReduce::Sum(t_storage, t_storage_bytes, Pmz_old_d, Psum_d, (int)Nvox);
@@ -409,28 +360,10 @@ if (peloop > 0 && out_flag == 1) {
 
            // hysteresis direction logic
            if (Ez_ext > maxEz) {
-	               // We are at the positive turning point (overshoot, e.g. 3.06 MV/cm)
-               //if (out_flag == 2 && peloop > 0 && !saved_Emax) {
-               //    char tag_sim[64];
-               //    sprintf(tag_sim, "Emax_sim%03d", sim_index);
-               //    save_snapshot(tag_sim, Pmx_old_d, Pmy_old_d, Pmz_old_d,
-               //           Psx_old_d, Psy_old_d, Psz_old_d, P0_scale);
-               //    saved_Emax = true;
-               //    printf("SNAPSHOT Emax: count=%d, E=%g MV/cm\n", count, E_MVcm);
-               //}
                incEz  = -delEz;
                peloop += 1;
            }
            if (Ez_ext < -maxEz) {
-		           // Negative turning point (overshoot, e.g. -3.06 MV/cm)
-              if (out_flag == 2 && peloop > 0 && !saved_Emin) {
-                  char tag_sim[64];
-                  sprintf(tag_sim, "Emin_sim%03d", sim_index);
-                  save_snapshot(tag_sim, Pmx_old_d, Pmy_old_d, Pmz_old_d, Psx_old_d, 
-				  Psy_old_d, Psz_old_d, P0_scale);
-                  saved_Emin = true;
-                  printf("SNAPSHOT Emin: count=%d, E=%g MV/cm\n", count, E_MVcm);
-              }
                 incEz      = delEz;
                 noise_done = 0;
            }
@@ -453,15 +386,6 @@ if (peloop > 0 && out_flag == 1) {
                 printf("Injected small Ps noise at E = %g MV/cm (step %d)\n", E_MVcm, count);
            }
            // -----------------------------------------------------------------
-
-	   if (out_flag == 2 && peloop > 0 && !saved_E0 && (E_prev_MVcm > 0.0 && E_MVcm <= 0.0)) {
-               char tag_sim[64];
-               sprintf(tag_sim, "E0_sim%03d", sim_index);
-               save_snapshot(tag_sim, Pmx_old_d, Pmy_old_d, Pmz_old_d,
-                      Psx_old_d, Psy_old_d, Psz_old_d,   P0_scale);
-               saved_E0 = true;
-               printf("SNAPSHOT E0: count=%d, E=%g MV/cm (prev=%g)\n", count, E_MVcm, E_prev_MVcm);
-           }
 
            if (peloop > 0) {
               fprintf(fvoln, "%le\t%le\t%le\t%le\t%le\t%le\t%le\t%le\t%le\t%le\t%le\t%d\n",
