@@ -94,7 +94,7 @@ static void LoadPhasePool(const char *filename)
         g_pool_size++;
     }
     fclose(fp);
-    printf("Phase pool loaded: %d entries (DE<=70%%) from '%s'\n", g_pool_size, filename);
+    printf("Phase pool loaded: %d entries (DE<=50%%) from '%s'\n", g_pool_size, filename);
 }
 
 static void PickPhaseFractions(double *afe_out, double *fe_out, double *de_out)
