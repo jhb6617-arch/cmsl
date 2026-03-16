@@ -420,6 +420,10 @@ int main(int argc, char *argv[])
                    (ny + threads.y - 1) / threads.y,
                    (nz + threads.z - 1) / threads.z);
 
+    // Timing variables (declared before any goto to avoid C++ jump-over-init errors)
+    struct timespec batch_t0, batch_t1, sim_t0, sim_t1;
+    double batch_elapsed = 0.0;
+
     // z BC
     if      (!strcmp(z_bc_type, "diri")) zbc_flag = DIRICHLET;
     else if (!strcmp(z_bc_type, "neu"))  zbc_flag = NEUMANN;
@@ -452,7 +456,6 @@ int main(int argc, char *argv[])
     //   1 Phase fraction set  (from 1000-set pool, DE<=70%)
     //   1 Polycrystalline structure  (from n_struct folders)
     // =========================================================
-    struct timespec batch_t0, batch_t1;
     clock_gettime(CLOCK_MONOTONIC, &batch_t0);
 
     for (int global_sim = 0; global_sim < max_sims; ++global_sim) {
@@ -498,7 +501,6 @@ int main(int argc, char *argv[])
         // --- 4. Run simulation ---
         reset_evolve_state();
 
-        struct timespec sim_t0, sim_t1;
         clock_gettime(CLOCK_MONOTONIC, &sim_t0);
 
         SetupAndRunSimulation();
@@ -510,8 +512,8 @@ int main(int argc, char *argv[])
     }
 
     clock_gettime(CLOCK_MONOTONIC, &batch_t1);
-    double batch_elapsed = (batch_t1.tv_sec  - batch_t0.tv_sec)
-                         + (batch_t1.tv_nsec - batch_t0.tv_nsec) * 1e-9;
+    batch_elapsed = (batch_t1.tv_sec  - batch_t0.tv_sec)
+                  + (batch_t1.tv_nsec - batch_t0.tv_nsec) * 1e-9;
     printf("\n##### Finished %d simulations in %.1f s (avg %.2f s/sim) #####\n",
            max_sims, batch_elapsed, batch_elapsed / max_sims);
 
