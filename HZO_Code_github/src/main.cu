@@ -452,6 +452,9 @@ int main(int argc, char *argv[])
     //   1 Phase fraction set  (from 1000-set pool, DE<=70%)
     //   1 Polycrystalline structure  (from n_struct folders)
     // =========================================================
+    struct timespec batch_t0, batch_t1;
+    clock_gettime(CLOCK_MONOTONIC, &batch_t0);
+
     for (int global_sim = 0; global_sim < max_sims; ++global_sim) {
 
         sim_index = offset_sims + global_sim + 1;
@@ -494,10 +497,23 @@ int main(int argc, char *argv[])
 
         // --- 4. Run simulation ---
         reset_evolve_state();
+
+        struct timespec sim_t0, sim_t1;
+        clock_gettime(CLOCK_MONOTONIC, &sim_t0);
+
         SetupAndRunSimulation();
+
+        clock_gettime(CLOCK_MONOTONIC, &sim_t1);
+        double sim_elapsed = (sim_t1.tv_sec  - sim_t0.tv_sec)
+                           + (sim_t1.tv_nsec - sim_t0.tv_nsec) * 1e-9;
+        printf("  [sim %d] wall time: %.2f s\n", sim_index, sim_elapsed);
     }
 
-    printf("\n##### Finished %d simulations #####\n", max_sims);
+    clock_gettime(CLOCK_MONOTONIC, &batch_t1);
+    double batch_elapsed = (batch_t1.tv_sec  - batch_t0.tv_sec)
+                         + (batch_t1.tv_nsec - batch_t0.tv_nsec) * 1e-9;
+    printf("\n##### Finished %d simulations in %.1f s (avg %.2f s/sim) #####\n",
+           max_sims, batch_elapsed, batch_elapsed / max_sims);
 
 cleanup:
     evolve_resources_cleanup();
